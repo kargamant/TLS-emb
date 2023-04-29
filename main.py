@@ -19,7 +19,7 @@ import copy
 import math
 from gensim.models import Word2Vec
 
-table = pd.read_parquet('../parquets/train.parquet')
+table = pd.read_parquet('train.parquet')
 x_train, x_test, y_train, y_test=sm.train_test_split(table, table['label'], test_size = 0.3, random_state=1)
 
 culist = x_train['curves'].astype(str).tolist()
@@ -28,9 +28,20 @@ culist = [elem.replace('[', '') for elem in culist]
 culist = [elem.replace(']', '') for elem in culist]
 culist = [elem.split() for elem in culist]
 
+
+culistt = x_test['curves'].astype(str).tolist()
+culistt = [elem.replace('\'', '') for elem in culistt]
+culistt = [elem.replace('[', '') for elem in culistt]
+culistt = [elem.replace(']', '') for elem in culistt]
+culistt = [elem.split() for elem in culistt]
+
 for i in range(len(culist)):
     for j in range(len(culist[i])):
         culist[i][j]='curve:'+culist[i][j]
+
+for i in range(len(culistt)):
+    for j in range(len(culistt[i])):
+        culistt[i][j]='curve:'+culistt[i][j]
 #print(culist[0])
 
 clist = x_train['ciphers'].astype(str).tolist()
@@ -40,8 +51,18 @@ clist = [elem.replace('[', '') for elem in clist]
 clist = [elem.replace(']', '') for elem in clist]
 clist = [elem.split() for elem in clist]
 
+clistt = x_test['ciphers'].astype(str).tolist()
+# clist = [elem.replace('-', '') for elem in clist]
+clistt = [elem.replace('\'', '') for elem in clistt]
+clistt = [elem.replace('[', '') for elem in clistt]
+clistt = [elem.replace(']', '') for elem in clistt]
+clistt = [elem.split() for elem in clistt]
+
 for i in range(len(clist)):
     clist[i]=clist[i]+culist[i]
+
+for i in range(len(clistt)):
+    clistt[i]=clistt[i]+culistt[i]
 
 tokenizer = Tokenizer()
 tokenizer.fit_on_texts(clist)
@@ -49,7 +70,6 @@ word_index = tokenizer.word_index
 total_unique_words = len(tokenizer.word_index) + 1
 #print(total_unique_words, math.sqrt(math.sqrt(total_unique_words)))
 vocab = list(tokenizer.word_index.keys())
-print(list(tokenizer.word_index.keys())[0])
 mlen = 0
 for i in clist:
     mlen = max(mlen, len(i))
@@ -58,13 +78,20 @@ for j in range(len(clist)):
         dif = mlen - len(clist[j])
         for _ in range(dif):
             clist[j].append('')
+
+for i in clistt:
+    for j in range(len(clistt)):
+        if len(clistt[j]) < mlen:
+            dif = mlen - len(clistt[j])
+            for _ in range(dif):
+                clistt[j].append('')
 #print(clist[0])
 data = tf.constant(clist)
 
 model=Sequential()
 
 input_l=tf.keras.Input(shape=(len(clist[0]),))
-strtovec = tf.keras.layers.StringLookup(max_tokens=total_unique_words, vocabulary=vocab)
+strtovec = tf.keras.layers.StringLookup(vocabulary=vocab)
 embedding = tf.keras.layers.Embedding(input_dim=total_unique_words, output_dim=4, input_length=len(clist[0])) #output dim 4
 # print(embedding)
 # exit()
@@ -72,11 +99,11 @@ lstm = LSTM(4, return_sequences=True) #input_shape=(33562, 102, 4)
 predictions = Dense(1, activation='sigmoid')
 
 model.add(input_l)
-model.add(strtovec)
+# model.add(strtovec)
 model.add(embedding)
 model.add(Dense(4, activation='relu'))
-#model.add(Flatten())
 model.add(lstm)
+model.add(Flatten())
 model.add(Dense(64, activation='relu'))
 model.add(Dense(64, activation='relu'))
 model.add(Dense(64, activation='relu'))
@@ -84,11 +111,10 @@ model.add(predictions)
 
 model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
 
+history = model.fit(strtovec(tf.constant(clist)), y_train, epochs=5, batch_size=32, validation_split=0.1)
 
-history=model.fit(data, tf.constant(y_train), epochs=5, batch_size=32, validation_split=0.1)
-
-pred=model.predict(x_test)
-score = model.evaluate(x_test, y_test, batch_size=64)
+pred = model.predict(strtovec(tf.constant(clistt)))
+score = model.evaluate(strtovec(tf.constant(clistt)), y_test, batch_size=64)
 print(score)
 
 #to be tested on similarity of vectors
