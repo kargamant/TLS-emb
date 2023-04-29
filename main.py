@@ -44,6 +44,7 @@ for j in range(len(clist)):
 data = tf.constant(clist)
 embedding = tf.keras.layers.StringLookup(max_tokens=total_unique_words, vocabulary=vocab)(data)
 print(embedding)
+#hello
 # lstm = LSTM(8)(embedding)
 
 # auxiliary_output = Dense(1, activation='sigmoid')(lstm)
