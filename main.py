@@ -1,7 +1,7 @@
 import keras
 import pandas as pd
 import numpy as np
-import sklearn
+import sklearn.model_selection as sm
 from keras import backend as K
 import tensorflow as tf
 from keras.layers import Flatten
@@ -20,7 +20,7 @@ import math
 from gensim.models import Word2Vec
 
 table = pd.read_parquet('../parquets/train.parquet')
-x_train, x_test, y_train, y_test=sklearn.model_selection.train_test_split(table, table['label'], test_size = 0.3, random_state=1)
+x_train, x_test, y_train, y_test=sm.train_test_split(table, table['label'], test_size = 0.3, random_state=1)
 
 culist = x_train['curves'].astype(str).tolist()
 culist = [elem.replace('\'', '') for elem in culist]
@@ -61,22 +61,33 @@ for j in range(len(clist)):
 #print(clist[0])
 data = tf.constant(clist)
 
-strtovec = tf.keras.layers.StringLookup(max_tokens=total_unique_words, vocabulary=vocab)(data)
-embedding = tf.keras.layers.Embedding(input_dim=total_unique_words, output_dim=4)(strtovec) #output dim 4
-lstm = LSTM(4)(embedding)
-
 model=Sequential()
-#model.add(lstm)
-x=Dense(64, activation='relu')(lstm)
-x=Dense(64, activation='relu')(x)
-x=Dense(64, activation='relu')(x)
-#main_input = tf.keras.layers.Input(shape=(len(clist), len(clist[0])))
-predictions = Dense(1, activation='sigmoid')(x)
+
+input_l=tf.keras.Input(shape=(len(clist[0]),))
+strtovec = tf.keras.layers.StringLookup(max_tokens=total_unique_words, vocabulary=vocab)
+embedding = tf.keras.layers.Embedding(input_dim=total_unique_words, output_dim=4, input_length=len(clist[0])) #output dim 4
+# print(embedding)
+# exit()
+lstm = LSTM(4, return_sequences=True) #input_shape=(33562, 102, 4)
+predictions = Dense(1, activation='sigmoid')
+
+model.add(input_l)
+model.add(strtovec)
+model.add(embedding)
+model.add(Dense(4, activation='relu'))
+#model.add(Flatten())
+model.add(lstm)
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
 model.add(predictions)
+
 model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
 
-model.fit(x_train, y_train, epochs=5, batch_size=32)
 
+history=model.fit(data, tf.constant(y_train), epochs=5, batch_size=32, validation_split=0.1)
+
+pred=model.predict(x_test)
 score = model.evaluate(x_test, y_test, batch_size=64)
 print(score)
 
