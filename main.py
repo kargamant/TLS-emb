@@ -17,7 +17,7 @@ import os
 import copy
 from gensim.models import Word2Vec
 
-table = pd.read_parquet('parquets/train.parquet')
+table = pd.read_parquet('../train.parquet')
 
 clist = table['ciphers'].astype(str).tolist()
 # clist = [elem.replace('-', '') for elem in clist]
@@ -33,19 +33,24 @@ total_unique_words = len(tokenizer.word_index) + 1
 
 vocab = list(tokenizer.word_index.keys())
 print(list(tokenizer.word_index.keys())[0])
-mlen=0
+mlen = 0
 for i in clist:
-    mlen=max(mlen, len(i))
+    mlen = max(mlen, len(i))
 for j in range(len(clist)):
-    if len(clist[j])<mlen:
-        dif=mlen-len(clist[j])
+    if len(clist[j]) < mlen:
+        dif = mlen - len(clist[j])
         for _ in range(dif):
             clist[j].append('')
 data = tf.constant(clist)
-embedding = tf.keras.layers.StringLookup(max_tokens=total_unique_words, vocabulary=vocab)(data)
-print(embedding)
-#hello
-# lstm = LSTM(8)(embedding)
+strtovec = tf.keras.layers.StringLookup(max_tokens=total_unique_words, vocabulary=vocab)(data)
+
+embedding = tf.keras.layers.Embedding(input_dim=total_unique_words, output_dim=16)(strtovec)
+
+lstm = LSTM(3)(embedding)
+
+
+# print(embedding[:3])
+# print(lstm[:3])
 
 # auxiliary_output = Dense(1, activation='sigmoid')(lstm)
 # print(auxiliary_output)
