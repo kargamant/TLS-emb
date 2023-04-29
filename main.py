@@ -1,6 +1,7 @@
 import keras
 import pandas as pd
 import numpy as np
+import sklearn
 from keras import backend as K
 import tensorflow as tf
 from keras.layers import Flatten
@@ -19,8 +20,9 @@ import math
 from gensim.models import Word2Vec
 
 table = pd.read_parquet('../parquets/train.parquet')
+x_train, x_test, y_train, y_test=sklearn.model_selection.train_test_split(table, table['label'], test_size = 0.3, random_state=1)
 
-culist = table['curves'].astype(str).tolist()
+culist = x_train['curves'].astype(str).tolist()
 culist = [elem.replace('\'', '') for elem in culist]
 culist = [elem.replace('[', '') for elem in culist]
 culist = [elem.replace(']', '') for elem in culist]
@@ -31,7 +33,7 @@ for i in range(len(culist)):
         culist[i][j]='curve:'+culist[i][j]
 #print(culist[0])
 
-clist = table['ciphers'].astype(str).tolist()
+clist = x_train['ciphers'].astype(str).tolist()
 # clist = [elem.replace('-', '') for elem in clist]
 clist = [elem.replace('\'', '') for elem in clist]
 clist = [elem.replace('[', '') for elem in clist]
@@ -60,22 +62,38 @@ for j in range(len(clist)):
 data = tf.constant(clist)
 
 strtovec = tf.keras.layers.StringLookup(max_tokens=total_unique_words, vocabulary=vocab)(data)
-embedding = tf.keras.layers.Embedding(input_dim=total_unique_words, output_dim=16)(strtovec) #output dim 4
-lstm = LSTM(8)(embedding)
+embedding = tf.keras.layers.Embedding(input_dim=total_unique_words, output_dim=4)(strtovec) #output dim 4
+lstm = LSTM(4)(embedding)
+
+model=Sequential()
+#model.add(lstm)
+x=Dense(64, activation='relu')(lstm)
+x=Dense(64, activation='relu')(x)
+x=Dense(64, activation='relu')(x)
+#main_input = tf.keras.layers.Input(shape=(len(clist), len(clist[0])))
+predictions = Dense(1, activation='sigmoid')(x)
+model.add(predictions)
+model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
+
+model.fit(x_train, y_train, epochs=5, batch_size=32)
+
+score = model.evaluate(x_test, y_test, batch_size=64)
+print(score)
+
 #to be tested on similarity of vectors
-vec1=lstm[15]
-mdistance=math.inf
-mvec=0
-for i in range(len(lstm)):
-    vec2=lstm[i]
-    if i==15:
-        continue
-    dist=math.sqrt((vec2[0]-vec1[0])**2 + (vec2[1]-vec1[1])**2 + (vec2[2]-vec1[2])**2)
-    if dist<mdistance:
-        mdistance=dist
-        mvec=i
-print(clist[15])
-print(mvec, clist[mvec])
+# vec1=lstm[15]
+# mdistance=math.inf
+# mvec=0
+# for i in range(len(lstm)):
+#     vec2=lstm[i]
+#     if i==15:
+#         continue
+#     dist=math.sqrt((vec2[0]-vec1[0])**2 + (vec2[1]-vec1[1])**2 + (vec2[2]-vec1[2])**2)
+#     if dist<mdistance:
+#         mdistance=dist
+#         mvec=i
+# print(clist[15])
+# print(mvec, clist[mvec])
 # print(embedding[:3])
 # print(lstm[:3])
 
