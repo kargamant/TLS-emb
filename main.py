@@ -20,6 +20,17 @@ from gensim.models import Word2Vec
 
 table = pd.read_parquet('../parquets/train.parquet')
 
+culist = table['curves'].astype(str).tolist()
+culist = [elem.replace('\'', '') for elem in culist]
+culist = [elem.replace('[', '') for elem in culist]
+culist = [elem.replace(']', '') for elem in culist]
+culist = [elem.split() for elem in culist]
+
+for i in range(len(culist)):
+    for j in range(len(culist[i])):
+        culist[i][j]='curve:'+culist[i][j]
+#print(culist[0])
+
 clist = table['ciphers'].astype(str).tolist()
 # clist = [elem.replace('-', '') for elem in clist]
 clist = [elem.replace('\'', '') for elem in clist]
@@ -27,11 +38,14 @@ clist = [elem.replace('[', '') for elem in clist]
 clist = [elem.replace(']', '') for elem in clist]
 clist = [elem.split() for elem in clist]
 
+for i in range(len(clist)):
+    clist[i]=clist[i]+culist[i]
+
 tokenizer = Tokenizer()
 tokenizer.fit_on_texts(clist)
 word_index = tokenizer.word_index
 total_unique_words = len(tokenizer.word_index) + 1
-
+#print(total_unique_words, math.sqrt(math.sqrt(total_unique_words)))
 vocab = list(tokenizer.word_index.keys())
 print(list(tokenizer.word_index.keys())[0])
 mlen = 0
@@ -44,8 +58,9 @@ for j in range(len(clist)):
             clist[j].append('')
 #print(clist[0])
 data = tf.constant(clist)
+
 strtovec = tf.keras.layers.StringLookup(max_tokens=total_unique_words, vocabulary=vocab)(data)
-embedding = tf.keras.layers.Embedding(input_dim=total_unique_words, output_dim=16)(strtovec)
+embedding = tf.keras.layers.Embedding(input_dim=total_unique_words, output_dim=16)(strtovec) #output dim 4
 lstm = LSTM(8)(embedding)
 #to be tested on similarity of vectors
 vec1=lstm[15]
