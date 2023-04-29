@@ -17,7 +17,7 @@ import os
 import copy
 from gensim.models import Word2Vec
 
-table = pd.read_parquet('../train.parquet')
+table = pd.read_parquet('../parquets/train.parquet')
 
 clist = table['ciphers'].astype(str).tolist()
 # clist = [elem.replace('-', '') for elem in clist]
@@ -41,13 +41,14 @@ for j in range(len(clist)):
         dif = mlen - len(clist[j])
         for _ in range(dif):
             clist[j].append('')
+print(clist[0])
 data = tf.constant(clist)
 strtovec = tf.keras.layers.StringLookup(max_tokens=total_unique_words, vocabulary=vocab)(data)
-
+print(strtovec[0])
 embedding = tf.keras.layers.Embedding(input_dim=total_unique_words, output_dim=16)(strtovec)
-
+print(embedding[0])
 lstm = LSTM(3)(embedding)
-
+print(lstm[0])
 
 # print(embedding[:3])
 # print(lstm[:3])
