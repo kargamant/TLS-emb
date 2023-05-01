@@ -1,40 +1,50 @@
-import keras
 import pandas as pd
-import numpy as np
 import sklearn.model_selection as sm
-from keras import backend as K
-import tensorflow as tf
 from keras.layers import Flatten
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-from tensorflow.keras.layers import Embedding, LSTM, Dense, Bidirectional
+from tensorflow.keras.layers import LSTM, Dense
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.optimizers import Adam
 import tensorflow as tf
-import pyarrow.parquet as pq
-from numpy import array
-import os
 # from IPhyton.display import display
-import copy
-import math
-from gensim.models import Word2Vec
+from TokenizateUA import TokenizateUA
 
-table = pd.read_parquet('train.parquet')
+#Все parquet файлы переехали на гугл диск:
+#https://drive.google.com/drive/folders/18FbIpfbq0cRKPw5a3cBdjFVTXkdHUiut?usp=sharing
+table = pd.read_parquet('../parquets/train.parquet')
+
+#разделение выборки на тестовую и обучающую
 x_train, x_test, y_train, y_test=sm.train_test_split(table, table['label'], test_size = 0.3, random_state=1)
 
+#Создание отдельного списка юзер-агентов(пустые юзер-агенты будут добавляться как пустые строки)
+ualist=[]
+for i in range(len(x_train['ua'])):
+    toks=[]
+    try:
+        #разбиваем юзер-агент на токены и добавляем их в ualist
+        for j in TokenizateUA(x_train['ua'][i]):
+            toks.append(j)
+        ualist.append(toks)
+    except KeyError:
+        ualist.append([''])
+
+print('Preparing data and tokenizing.\n')
+
+#culist - список наборов кривых из обучающей выборки
 culist = x_train['curves'].astype(str).tolist()
 culist = [elem.replace('\'', '') for elem in culist]
 culist = [elem.replace('[', '') for elem in culist]
 culist = [elem.replace(']', '') for elem in culist]
 culist = [elem.split() for elem in culist]
 
-
+#culistt - список наборов кривых из тестовой выборки
 culistt = x_test['curves'].astype(str).tolist()
 culistt = [elem.replace('\'', '') for elem in culistt]
 culistt = [elem.replace('[', '') for elem in culistt]
 culistt = [elem.replace(']', '') for elem in culistt]
 culistt = [elem.split() for elem in culistt]
 
+#Добавление префикса к кривым, поскольку названия некоторых кривых пересекаются с названиями шифров
+#А это даёт неправильное количество уникальных шифров+кривых
 for i in range(len(culist)):
     for j in range(len(culist[i])):
         culist[i][j]='curve:'+culist[i][j]
@@ -42,34 +52,35 @@ for i in range(len(culist)):
 for i in range(len(culistt)):
     for j in range(len(culistt[i])):
         culistt[i][j]='curve:'+culistt[i][j]
-#print(culist[0])
 
+#Аналогичные списки для наборов шифров из обучающей и тестовой выборок
 clist = x_train['ciphers'].astype(str).tolist()
-# clist = [elem.replace('-', '') for elem in clist]
 clist = [elem.replace('\'', '') for elem in clist]
 clist = [elem.replace('[', '') for elem in clist]
 clist = [elem.replace(']', '') for elem in clist]
 clist = [elem.split() for elem in clist]
 
 clistt = x_test['ciphers'].astype(str).tolist()
-# clist = [elem.replace('-', '') for elem in clist]
 clistt = [elem.replace('\'', '') for elem in clistt]
 clistt = [elem.replace('[', '') for elem in clistt]
 clistt = [elem.replace(']', '') for elem in clistt]
 clistt = [elem.split() for elem in clistt]
 
+#склеивание в один набор: user-agent + ciphers + curves
 for i in range(len(clist)):
-    clist[i]=clist[i]+culist[i]
+    clist[i]=ualist[i] + clist[i] +culist[i]
 
 for i in range(len(clistt)):
-    clistt[i]=clistt[i]+culistt[i]
+    clistt[i]=ualist[i] + clistt[i] +culistt[i]
 
+#токенизация склеинных наборов
 tokenizer = Tokenizer()
 tokenizer.fit_on_texts(clist)
 word_index = tokenizer.word_index
 total_unique_words = len(tokenizer.word_index) + 1
-#print(total_unique_words, math.sqrt(math.sqrt(total_unique_words)))
 vocab = list(tokenizer.word_index.keys())
+
+#Приведение к прямоугольному виду для преобразования в тензор
 mlen = 0
 for i in clist:
     mlen = max(mlen, len(i))
@@ -85,118 +96,108 @@ for i in clistt:
             dif = mlen - len(clistt[j])
             for _ in range(dif):
                 clistt[j].append('')
-#print(clist[0])
-data = tf.constant(clist)
 
+#Получившийся тензор, с которым можно работать
+data = tf.constant(clist)
+data_test=tf.constant(clistt)
+
+print('Preparing model\n')
 model=Sequential()
 
+#input_l - входной слой
+#strtovec - слой отображающий строковые признаки в числовые
+#embedding - слой, создающий эмбеддинг из числовых признаков, полученных из strtovec
+#lstm - maximize the perfomance
+#predictions - результат предсказания
 input_l=tf.keras.Input(shape=(len(clist[0]),))
 strtovec = tf.keras.layers.StringLookup(vocabulary=vocab)
 embedding = tf.keras.layers.Embedding(input_dim=total_unique_words, output_dim=4, input_length=len(clist[0])) #output dim 4
-# print(embedding)
-# exit()
-lstm = LSTM(4, return_sequences=True) #input_shape=(33562, 102, 4)
+lstm = tf.keras.layers.Bidirectional(LSTM(4, return_sequences=True, dropout=0.2)) #input_shape=(33562, 102, 4)
 predictions = Dense(1, activation='sigmoid')
 
+#Добавление слоёв
 model.add(input_l)
-# model.add(strtovec)
 model.add(embedding)
 model.add(Dense(4, activation='relu'))
 model.add(lstm)
 model.add(Flatten())
-model.add(Dense(64, activation='relu'))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(64, activation='relu'))
+model.add(Dense(256, activation='relu'))
+model.add(Dense(256, activation='relu'))
+model.add(Dense(256, activation='relu'))
 model.add(predictions)
 
-model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy'])
+#компиляция
+model.compile(loss='binary_crossentropy', optimizer='rmsprop', metrics=['accuracy']) #rmsprop
 
-history = model.fit(strtovec(tf.constant(clist)), y_train, epochs=5, batch_size=32, validation_split=0.1)
+#Обучение модели.
+#Максимальный результат 0.681 на test.parquet был получен на 25 эпохах, batch 128 и val split 0.1
+history = model.fit(strtovec(tf.constant(clist)), y_train, epochs=15, batch_size=256, validation_split=0.2) #5 32 0.1
+#10 16 0.2  - 0.8687
+#10 256 0.1 - 0.8662
+#25 128 0.1 - 0.8833
+#25 128 0.1 - 0.8757
+#25 128 0.1 - 0.8808
+#30 128 0.1 - 0.8872 subs
+#30 128 0.1 - 0.8953 subs2
+#30 128 0.1 - 0.9002 subs3
 
-pred = model.predict(strtovec(tf.constant(clistt)))
-score = model.evaluate(strtovec(tf.constant(clistt)), y_test, batch_size=64)
+print('Now testing.\n')
+pred=model.predict(strtovec(data_test))
+score = model.evaluate(strtovec(data_test), y_test, batch_size=64)
 print(score)
 
-#to be tested on similarity of vectors
-# vec1=lstm[15]
-# mdistance=math.inf
-# mvec=0
-# for i in range(len(lstm)):
-#     vec2=lstm[i]
-#     if i==15:
-#         continue
-#     dist=math.sqrt((vec2[0]-vec1[0])**2 + (vec2[1]-vec1[1])**2 + (vec2[2]-vec1[2])**2)
-#     if dist<mdistance:
-#         mdistance=dist
-#         mvec=i
-# print(clist[15])
-# print(mvec, clist[mvec])
-# print(embedding[:3])
-# print(lstm[:3])
+test=pd.read_parquet('../parquets/test.parquet')
 
-# auxiliary_output = Dense(1, activation='sigmoid')(lstm)
-# print(auxiliary_output)
+#Загрузка и преобразование тестовых данных из test.parquet
+tstculist=[]
+for i in range(len(test['curves'])):
+    tstculist.append(test['curves'][i].decode(encoding='utf-8').replace(']', '').replace('[', '').replace(',', ' ').replace('\"', '').split(' '))
+for i in range(len(tstculist)):
+    for j in range(len(tstculist[i])):
+        tstculist[i][j]="curve:" + tstculist[i][j]
 
+tstualist=[]
+for i in range(len(test['ua'])):
+    toks=[]
+    try:
+        for j in TokenizateUA(test['ua'][i]):
+            toks.append(j)
+        tstualist.append(toks)
+    except KeyError:
+        tstualist.append([''])
 
+tstclist=[]
+for i in range(len(test['ciphers'])):
+    tstclist.append(test['ciphers'][i].decode(encoding='utf-8').replace(']', '').replace('[', '').replace(',', ' ').replace('\"', '').split(' '))
+for h in range(len(tstclist)):
+    tstclist[h]=tstualist[h] + tstclist[h] +tstculist[h]
 
+mlen = 0
+for i in tstclist:
+    mlen = max(mlen, len(i))
+mlen-=1
+print("mlen: "+ str(mlen))
+for j in range(len(tstclist)):
+    if len(tstclist[j]) <= mlen:
+        dif = mlen - len(tstclist[j])
+        for _ in range(dif):
+            tstclist[j].append('')
+    else:
+        print("yes\n")
+        diff=len(tstclist[j])-mlen
+        tstclist[j]=tstclist[j][:-diff:]
+        print(len(tstclist[j]))
 
+tstdata=tf.constant(tstclist)
 
-# print(total_unique_words)
-# print(word_index)
-# input_sequences = []
-# for line in clist:
-#     token_list = tokenizer.texts_to_sequences([line])[0]
-#     for i in range(1, len(token_list)):
-#         n_gram_seqs = token_list[:i + 1]
-#         input_sequences.append(n_gram_seqs)
-# print(len(input_sequences))
-# print(input_sequences)
-# max_seq_length = max([len(x) for x in input_sequences])
-# input_seqs = np.array(pad_sequences(input_sequences, maxlen=max_seq_length, padding='pre'))
-# print(max_seq_length)
-# print(input_seqs[:5])
-# x_values, labels = input_seqs[:, :-1], input_seqs[:, -1]
-# y_values = tf.keras.utils.to_categorical(labels, num_classes=total_unique_words)
-# print(x_values[56])
-# print(labels[:3])
-#
+tstpred=model.predict(strtovec(tstdata))
 
+print('writing results.\n')
 
-
-# model = Sequential()
-#
-# ciphers = tf.keras.Input(shape=(total_unique_words, ), name='ciphers')
-# embedding = Embedding(output_dim=32, input_dim=total_unique_words)(ciphers)
-# embed_lstm = LSTM(3)(embedding)
-# embed_out = Dense(3, activation='sigmoid', name='embed_out')(embed_lstm)
-#
-#
-# isbot = tf.keras.Input(shape=(1,), name='isbot')
-# res = keras.layers.concatenate([isbot, embed_out])
-#
-# x = Dense(16, activation='relu')(res)
-# x = Dense(16, activation='relu')(x)
-# x = Dense(16, activation='relu')(x)
-#
-# main_output = Dense(1, activation='sigmoid', name='main_output')(x)
-#
-# model = tf.keras.Model(inputs=[ciphers, isbot], outputs=[embed_out, main_output])
-#
-# model.compile(optimizer='rmsprop',
-#
-#               loss={'main_output': 'binary_crossentropy', 'embed_out': 'binary_crossentropy'},
-#
-#               loss_weights={'main_output': 1., 'embed_out': 0.2})
-#
-# output = ()
-# emb_output = ()
-#
-# # model.fit({'isbot': table['label'], 'ciphers': x_values},
-# #
-# #           {'main_output': output, 'embed_out': emb_output},
-# #
-# #           epochs=50, batch_size=32)
-#
-# pred = model.predict([table['label'], x_values])
-#
-# print(pred)
+#Запись результатов в csv файл
+ans = {"id": [], "is_bot": []}
+for i in range(len(test)):
+    ans['id'].append(test['id'][i])
+    ans['is_bot'].append(tstpred[i][0])
+res = pd.DataFrame(ans)
+res.to_csv("submission.csv", index=False)
